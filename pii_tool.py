@@ -136,6 +136,50 @@ def 报(明细, 可疑, 最多=20):
             print(f"  …还有 {len(可疑) - 最多} 处")
 
 
+def 处理docx(源: Path, r: 规则, 场: dict):
+    """Word：逐段落、逐表格单元格改。返回 (文档, 明细, 可疑)。
+
+    注意：为了保住位置，改过的段落会把文字并到第一个 run 里——
+    段落样式还在，但段内局部的加粗/颜色会丢。这一点 README 里写了。
+    """
+    try:
+        import docx
+    except Exception:
+        print("处理 .docx 需要 python-docx：pip install python-docx", file=sys.stderr)
+        raise SystemExit(2)
+
+    文档 = docx.Document(str(源))
+    明细, 可疑 = [], []
+
+    def 走(段, 位置):
+        原 = 段.text
+        if not 原 or not 原.strip():
+            return
+        前 = set(场["map"])
+        新 = r.脱一段(原, 场)
+        for 键, 值 in 场["map"].items():
+            if 键 not in 前:
+                明细.append((位置, 值, 键))
+        if 新 != 原:
+            for x in 段.runs[1:]:
+                x.text = ""
+            if 段.runs:
+                段.runs[0].text = 新
+            else:
+                段.add_run(新)
+        for 说明, 片 in 查可疑(新):
+            可疑.append((位置, 说明, 片))
+
+    for i, 段 in enumerate(文档.paragraphs, 1):
+        走(段, f"第 {i} 段")
+    for k, 表 in enumerate(文档.tables, 1):
+        for i, 行 in enumerate(表.rows, 1):
+            for j, 格 in enumerate(行.cells, 1):
+                for 段 in 格.paragraphs:
+                    走(段, f"[表 {k}] 第 {i} 行 第 {j} 列")
+    return 文档, 明细, 可疑
+
+
 def 主():
     解 = argparse.ArgumentParser(description="中文敏感信息脱敏（命令行版，不需要 Open WebUI）")
     解.add_argument("动作", choices=["preview", "redact", "restore"], help="预览 / 脱敏 / 还原")
@@ -162,6 +206,37 @@ def 主():
                 文 = 文.replace(k, v)
             return 文
 
+        if 源.suffix.lower() == ".docx":
+            try:
+                import docx
+            except Exception:
+                print("还原 .docx 需要 python-docx：pip install python-docx", file=sys.stderr)
+                raise SystemExit(2)
+            文 = docx.Document(str(源))
+
+            def 改段(段):
+                原 = 段.text
+                新 = 换(原)
+                if 新 != 原:
+                    for x in 段.runs[1:]:
+                        x.text = ""
+                    if 段.runs:
+                        段.runs[0].text = 新
+                    else:
+                        段.add_run(新)
+
+            for 段 in 文.paragraphs:
+                改段(段)
+            for 表 in 文.tables:
+                for 行 in 表.rows:
+                    for 格 in 行.cells:
+                        for 段 in 格.paragraphs:
+                            改段(段)
+            出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".restored" + 源.suffix)
+            文.save(str(出))
+            print("还原完成 →", 出)
+            return
+
         数据, 模式, 编码, 写回 = 读文件(源)
         if 模式 == "行":
             新 = [换(l) for l in 数据]
@@ -173,6 +248,23 @@ def 主():
         出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".restored" + 源.suffix)
         写回(新, 出)
         print("还原完成 →", 出)
+        return
+
+    if 源.suffix.lower() == ".docx":
+        场 = 新场()
+        文档, 明细, 可疑 = 处理docx(源, r, 场)
+        print(f"读入：{源.name}（Word）")
+        报(明细, 可疑)
+        if 参.动作 == "preview":
+            print("\n（只是预览，没写任何文件）")
+            return
+        出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".redacted" + 源.suffix)
+        文档.save(str(出))
+        映射路 = Path(参.映射) if 参.映射 else 源.with_name(源.stem + ".map.json")
+        映射路.write_text(json.dumps(场["map"], ensure_ascii=False, indent=2), encoding="utf-8")
+        print("\n脱敏版 →", 出)
+        print("映射表 →", 映射路)
+        print("⚠ 映射表里是真值：谁拿到它就能还原全部。别外传，用完删掉。")
         return
 
     数据, 模式, 编码, 写回 = 读文件(源)

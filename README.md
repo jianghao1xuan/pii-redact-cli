@@ -31,8 +31,8 @@ pip install openpyxl
 # 1. 先看会改哪几处（不动文件）
 python pii_tool.py preview 客户.csv
 
-# 2. 出脱敏版 + 映射表
-python pii_tool.py redact 客户.csv
+# 2. 出脱敏版 + 映射表（.txt .md .csv .xlsx .docx 都行）
+python pii_tool.py redact 客户.docx
 
 # 3. 需要时还原
 python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
@@ -73,11 +73,16 @@ python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
 
 ## 支持
 
-`.txt`、`.md`、`.csv`（逐格，不动分隔符）、`.xlsx` / `.xlsm`（逐格，所有 sheet，需要 openpyxl）。
+`.txt`、`.md`、`.csv`（逐格，不动分隔符）、`.xlsx` / `.xlsm`（逐格，所有 sheet）、`.docx`（段落 + 表格）。
+
+- Excel 要 `openpyxl`：`pip install openpyxl`
+- Word 要 `python-docx`：`pip install python-docx`
 
 编码自动识别：UTF-8（含 BOM）、GBK / GB18030、Big5。读进来什么编码，写出去还是什么编码。
 
-**还不支持**：Word（.docx）、PDF、图片。这三样没做——图片要先 OCR，认出来的字和原图对不上，做不到"改完还能还原"，所以不放进这个工具。
+**Word 的一个小心事**：改过的段落会把文字并到第一个 run 里——段落样式（标题、行距）还在，但段内局部的加粗、颜色会丢。要连这点也保住，得逐 run 拼位置，容易出错，这一版没做。
+
+**还不支持**：PDF、图片。图片要先 OCR，认出来的字和原图对不上，做不到"改完还能还原"，所以不放进这个工具。
 
 识别八类，带校验，不是看见数字就换：
 
@@ -114,6 +119,7 @@ python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
 python tests/test_rules.py         # 十三种写法、六种不该误伤、同号复用
 python tests/test_tool.py          # txt / csv 的文件级流程
 python tests/test_improvements.py  # GBK 编码、行列位置、可疑清单、多 sheet
+python tests/test_docx.py          # Word：段落、表格、还原
 ```
 
 预期：`应挡 13/13｜误伤 0/6｜同号复用 True`、`文件级全过`、最后一段能看到 GBK 被正确识别、明细带行列号、多 sheet 都在。
