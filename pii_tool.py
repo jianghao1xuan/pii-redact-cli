@@ -85,13 +85,10 @@ def 处理(数据, 模式, r: 规则, 场: dict):
     def 走(文, 位置):
         if not isinstance(文, str) or not 文:
             return 文
-        前 = len(场["map"])
+        场.pop("新键", None)
         新 = r.脱一段(文, 场)
-        if len(场["map"]) > 前:
-            已 = set(场["map"].values())
-            for 键, 原 in 场["map"].items():
-                if 原 in 文 and 键 not in {k for _, _, k in 明细}:
-                    明细.append((位置, 原, 键))
+        for 键 in 场.pop("新键", []):
+            明细.append((位置, 场["map"][键], 键))
         for 说明, 片 in 查可疑(新):
             可疑.append((位置, 说明, 片))
         return 新

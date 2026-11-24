@@ -95,5 +95,20 @@ g.write_bytes("王强 13600001111\n".encode("gbk"))
 类数 = sum(1 for x in ("PHONE", "TEL", "PLATE", "PASSPORT", "USCC", "EMAIL", "ID", "BANK") if x in 出)
 查("八类一次全认", 类数 == 8, f"只认出 {类数} 类")
 
+# 11 大文件：5000 行要在 5 秒内（以前是逐格重扫全表，2 万行要半分钟）
+import csv  # noqa: E402
+import time  # noqa: E402
+
+大 = 临 / "大表.csv"
+with 大.open("w", encoding="utf-8", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["姓名", "手机", "订单"])
+    for i in range(5000):
+        w.writerow([f"客户{i}", f"138{i:08d}", f"2026{i:04d}"])
+起 = time.time()
+码, 出 = 跑("redact", 大)
+用时 = time.time() - 起
+查("5000 行 5 秒内", 码 == 0 and 用时 < 5 and "5000 处" in 出, f"{用时:.1f} 秒")
+
 print("\n失败：", 错 if 错 else "无")
 sys.exit(1 if 错 else 0)
