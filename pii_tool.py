@@ -180,6 +180,17 @@ def 处理docx(源: Path, r: 规则, 场: dict):
     return 文档, 明细, 可疑
 
 
+支持后缀 = {".txt", ".md", ".csv", ".xlsx", ".xlsm", ".docx"}
+不支持说明 = {
+    ".pdf": "PDF 这一版没做（要解析版式，容易出错）",
+    ".doc": "老式 .doc 不支持，请在 Word 里另存为 .docx",
+    ".jpg": "图片要先 OCR，做不到「改完还能还原」，所以不放进这个工具",
+    ".jpeg": "同上",
+    ".png": "同上",
+    ".xls": "老式 .xls 不支持，请另存为 .xlsx",
+}
+
+
 def 主():
     解 = argparse.ArgumentParser(description="中文敏感信息脱敏（命令行版，不需要 Open WebUI）")
     解.add_argument("动作", choices=["preview", "redact", "restore"], help="预览 / 脱敏 / 还原")
@@ -191,6 +202,12 @@ def 主():
     源 = Path(参.文件)
     if not 源.is_file():
         print("找不到文件：", 源, file=sys.stderr)
+        raise SystemExit(2)
+
+    if 源.suffix.lower() not in 支持后缀:
+        说 = 不支持说明.get(源.suffix.lower(), "这个格式没做")
+        print(f"不支持 {源.suffix}：{说}", file=sys.stderr)
+        print(f"现在支持：{'、'.join(sorted(支持后缀))}", file=sys.stderr)
         raise SystemExit(2)
 
     r = 规则()

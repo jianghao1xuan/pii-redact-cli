@@ -120,6 +120,7 @@ python tests/test_rules.py         # 十三种写法、六种不该误伤、同�
 python tests/test_tool.py          # txt / csv 的文件级流程
 python tests/test_improvements.py  # GBK 编码、行列位置、可疑清单、多 sheet
 python tests/test_docx.py          # Word：段落、表格、还原
+python tests/test_edge.py          # 边角：不支持的类型、空文件、重复跑、中文路径
 ```
 
 预期：`应挡 13/13｜误伤 0/6｜同号复用 True`、`文件级全过`、最后一段能看到 GBK 被正确识别、明细带行列号、多 sheet 都在。
