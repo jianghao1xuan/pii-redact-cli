@@ -2,7 +2,7 @@
 
 命令行中文脱敏工具：把文件里的手机号、身份证、银行卡这些换成占位符，需要时再换回来。
 
-**不需要 Open WebUI，也不需要联网**，处理和还原都在你自己电脑上完成，一个字节都不出去。
+**纯命令行，不要服务器、不要账号、不连网**——处理和还原都在你自己电脑上完成，一个字节都不出去。
 
 依赖分三档，看你要处理什么：
 
@@ -116,17 +116,6 @@ python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
 | 护照 | `[PASSPORT_n]` | `E12345678` |
 
 **不做**：姓名、地址、公司名、金额、IP、QQ/微信。
-
----
-
-## 和 Open WebUI 那个插件的关系
-
-两个独立项目，用户不重叠：
-
-- **这个**：处理文件，命令行，不联网
-- **[openwebui-pii-redact](https://github.com/jianghao1xuan/openwebui-pii-redact)**：Open WebUI 的插件，聊天时自动拦
-
-规则同源、各自维护，互不依赖——你不用装 Open WebUI 才能用它。
 
 ---
 
