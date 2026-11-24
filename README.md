@@ -43,20 +43,29 @@ python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
 实际跑起来是这样：
 
 ```
-这张表里换掉 4 处：
+读入：客户.csv（编码 gb18030）
+换掉 4 处：
   PHONE       2 处
   TEL         1 处
   PLATE       1 处
 
-脱敏版 → 客户.redacted.csv
-映射表 → 客户.map.json
+明细（位置 / 原文 / 换成了）：
+  第 2 行 第 2 列            13812345678                  → [PHONE_1]
+  第 3 行 第 2 列            +86 139-0000-2222            → [PHONE_2]
+  第 3 行 第 3 列            0571-88888888                → [TEL_1]
+  第 4 行 第 3 列            京A12345                     → [PLATE_1]
 
-姓名,手机,订单
-张伟,[PHONE_1],20261124001
-李娜,[PHONE_2],20261124002
+⚠ 这 2 处像敏感信息，但校验没过，我没动——请自己看一眼：
+  第 5 行 第 2 列            4111111111111112             （像银行卡，但 Luhn 校验不过）
+  第 5 行 第 3 列            110105194912310021           （18 位、但校验位不对）
 ```
 
-订单号、日期、金额这些不会被误伤。
+几个要紧的地方：
+
+- **编码自动认**：UTF-8、GBK/GB18030、Big5 都试，读进来是什么编码，写出去也是什么编码。GBK 的 CSV 不会变乱码。
+- **位置说清楚**：第几行第几列，表格用 `[工作表] 第 n 行 第 m 列`，对得上表。
+- **"像但不对"单独列**：卡号差一位、身份证校验位错，它不会硬改，而是列出来让你自己看——**不然这种就是漏**。
+- **Excel 所有 sheet 都处理**，不是只看第一个。
 
 **映射表里是真值**，别外传，用完删掉。还原是逐字的（`+86 139-0000-2222` 还原回来连横杠都在）。
 
@@ -64,7 +73,11 @@ python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
 
 ## 支持
 
-`.txt`、`.md`、`.csv`（逐格，不动分隔符）、`.xlsx`（逐格，需要 openpyxl）。
+`.txt`、`.md`、`.csv`（逐格，不动分隔符）、`.xlsx` / `.xlsm`（逐格，所有 sheet，需要 openpyxl）。
+
+编码自动识别：UTF-8（含 BOM）、GBK / GB18030、Big5。读进来什么编码，写出去还是什么编码。
+
+**还不支持**：Word（.docx）、PDF、图片。这三样没做——图片要先 OCR，认出来的字和原图对不上，做不到"改完还能还原"，所以不放进这个工具。
 
 识别八类，带校验，不是看见数字就换：
 
@@ -98,11 +111,12 @@ python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
 ## 自己验
 
 ```bash
-python tests/test_rules.py   # 十三种写法、六种不该误伤、同号复用
-python tests/test_tool.py    # txt / csv 的文件级流程
+python tests/test_rules.py         # 十三种写法、六种不该误伤、同号复用
+python tests/test_tool.py          # txt / csv 的文件级流程
+python tests/test_improvements.py  # GBK 编码、行列位置、可疑清单、多 sheet
 ```
 
-预期：`应挡 13/13｜误伤 0/6｜同号复用 True`、`文件级全过`。
+预期：`应挡 13/13｜误伤 0/6｜同号复用 True`、`文件级全过`、最后一段能看到 GBK 被正确识别、明细带行列号、多 sheet 都在。
 
 ---
 

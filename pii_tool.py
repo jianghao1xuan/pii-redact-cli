@@ -10,26 +10,45 @@
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from pii_rules import 规则, 新场  # noqa: E402
+from pii_rules import 规则, 新场, 查可疑  # noqa: E402
+
+编码们 = ("utf-8", "gb18030", "big5", "latin-1")
 
 
-def 读格(路: Path):
-    """返回 (数据, 模式, 写回)。模式：'格' 是表格，'行' 是纯文本。"""
+def 猜编码(路: Path) -> str:
+    """按顺序试，能整篇解出来才算。最后兜底 latin-1（永不失败）。"""
+    原 = 路.read_bytes()
+    if 原.startswith(b"\xef\xbb\xbf"):      # 带 BOM 的 UTF-8，写回时也要留着
+        return "utf-8-sig"
+    for 编 in 编码们:
+        try:
+            原.decode(编)
+            return 编
+        except UnicodeDecodeError:
+            continue
+    return "latin-1"
+
+
+def 读文件(路: Path):
+    """返回 (数据, 模式, 编码, 写回)。模式：'格' 表格行×列；'行' 纯文本行。"""
     后 = 路.suffix.lower()
-    if 后 == ".csv":
-        with 路.open(encoding="utf-8-sig", newline="") as f:
-            行 = [r for r in csv.reader(f)]
 
-        def 写(新行, 出: Path):
-            with 出.open("w", encoding="utf-8-sig", newline="") as f:
-                csv.writer(f).writerows(新行)
-        return 行, "格", 写
+    if 后 == ".csv":
+        编 = 猜编码(路)
+        with 路.open(encoding=编, newline="") as f:
+            数据 = [r for r in csv.reader(f)]
+
+        def 写(新数据, 出: Path):
+            with 出.open("w", encoding=编, newline="") as f:
+                csv.writer(f).writerows(新数据)
+        return 数据, "格", 编, 写
 
     if 后 in (".xlsx", ".xlsm"):
         try:
@@ -38,18 +57,83 @@ def 读格(路: Path):
             print("处理 xlsx 需要 openpyxl：pip install openpyxl", file=sys.stderr)
             raise SystemExit(2)
         书 = openpyxl.load_workbook(路)
-        行 = [[c.value for c in r] for r in 书.active.iter_rows()]
+        数据 = {}
+        for 页 in 书.worksheets:
+            数据[页.title] = [[c.value for c in r] for r in 页.iter_rows()]
 
-        def 写(新行, 出: Path):
+        def 写(新数据, 出: Path):
             新 = openpyxl.Workbook()
-            页 = 新.active
-            for r in 新行:
-                页.append(r)
+            新.remove(新.active)
+            for 名, 行们 in 新数据.items():
+                页 = 新.create_sheet(title=名[:31])
+                for r in 行们:
+                    页.append(r)
             新.save(出)
-        return 行, "格", 写
+        return 数据, "簿", "utf-8", 写
 
-    return (路.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True), "行",
-            lambda 新行, 出: 出.write_text("".join(新行), encoding="utf-8"))
+    编 = 猜编码(路)
+
+    def 写(新数据, 出: Path):
+        出.write_text("".join(新数据), encoding=编)
+    return 路.read_text(encoding=编, errors="replace").splitlines(keepends=True), "行", 编, 写
+
+
+def 处理(数据, 模式, r: 规则, 场: dict):
+    """返回 (新数据, 明细, 可疑)。明细每条 = (位置, 原文, 占位符)。"""
+    明细, 可疑 = [], []
+
+    def 走(文, 位置):
+        if not isinstance(文, str) or not 文:
+            return 文
+        前 = len(场["map"])
+        新 = r.脱一段(文, 场)
+        if len(场["map"]) > 前:
+            已 = set(场["map"].values())
+            for 键, 原 in 场["map"].items():
+                if 原 in 文 and 键 not in {k for _, _, k in 明细}:
+                    明细.append((位置, 原, 键))
+        for 说明, 片 in 查可疑(新):
+            可疑.append((位置, 说明, 片))
+        return 新
+
+    if 模式 == "行":
+        return [走(l, f"第 {i} 行") for i, l in enumerate(数据, 1)], 明细, 可疑
+
+    if 模式 == "格":
+        新 = []
+        for i, 行 in enumerate(数据, 1):
+            新.append([走(c, f"第 {i} 行 第 {j} 列") for j, c in enumerate(行, 1)])
+        return 新, 明细, 可疑
+
+    新簿 = {}
+    for 名, 行们 in 数据.items():
+        新行们 = []
+        for i, 行 in enumerate(行们, 1):
+            新行们.append([走(c, f"[{名}] 第 {i} 行 第 {j} 列") for j, c in enumerate(行, 1)])
+        新簿[名] = 新行们
+    return 新簿, 明细, 可疑
+
+
+def 报(明细, 可疑, 最多=20):
+    记数 = {}
+    for _, _, 键 in 明细:
+        类 = 键.strip("[]").rsplit("_", 1)[0]
+        记数[类] = 记数.get(类, 0) + 1
+    print(f"换掉 {len(明细)} 处：")
+    for 类, n in sorted(记数.items()):
+        print(f"  {类:<9} {n:>3} 处")
+    if 明细:
+        print("\n明细（位置 / 原文 / 换成了）：")
+        for 位置, 原, 键 in 明细[:最多]:
+            print(f"  {位置:<22} {原[:26]:<28} → {键}")
+        if len(明细) > 最多:
+            print(f"  …还有 {len(明细) - 最多} 处，完整列表在映射表里")
+    if 可疑:
+        print(f"\n⚠ 这 {len(可疑)} 处像敏感信息，但校验没过，我没动——请自己看一眼：")
+        for 位置, 说明, 片 in 可疑[:最多]:
+            print(f"  {位置:<22} {片[:26]:<28} （{说明}）")
+        if len(可疑) > 最多:
+            print(f"  …还有 {len(可疑) - 最多} 处")
 
 
 def 主():
@@ -78,52 +162,36 @@ def 主():
                 文 = 文.replace(k, v)
             return 文
 
-        行, 模式, 写回 = 读格(源)
-        if 模式 == "格":
-            新行 = [[换(c) if isinstance(c, str) else c for c in 行_] for 行_ in 行]
+        数据, 模式, 编码, 写回 = 读文件(源)
+        if 模式 == "行":
+            新 = [换(l) for l in 数据]
+        elif 模式 == "格":
+            新 = [[换(c) if isinstance(c, str) else c for c in 行] for 行 in 数据]
         else:
-            新行 = [换(l) for l in 行]
+            新 = {名: [[换(c) if isinstance(c, str) else c for c in 行] for 行 in 行们]
+                  for 名, 行们 in 数据.items()}
         出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".restored" + 源.suffix)
-        写回(新行, 出)
+        写回(新, 出)
         print("还原完成 →", 出)
         return
 
+    数据, 模式, 编码, 写回 = 读文件(源)
+    print(f"读入：{源.name}（编码 {编码}）")
     场 = 新场()
-
-    def 换(文):
-        return r.脱一段(文, 场)
-
-    行, 模式, 写回 = 读格(源)
-    if 模式 == "格":
-        新行 = [[换(c) if isinstance(c, str) else c for c in 行_] for 行_ in 行]
-    else:
-        新行 = [换(l) for l in 行]
-
-    映射 = 场["map"]
-    记数 = {}
-    for k in 映射:
-        类 = k.strip("[]").rsplit("_", 1)[0]
-        记数[类] = 记数.get(类, 0) + 1
-
-    print(f"这{'张表' if 模式 == '格' else '个文件'}里换掉 {len(映射)} 处：")
-    for 类, n in sorted(记数.items()):
-        print(f"  {类:<9} {n:>3} 处")
+    新, 明细, 可疑 = 处理(数据, 模式, r, 场)
+    报(明细, 可疑)
 
     if 参.动作 == "preview":
-        if 映射:
-            print("\n前几处长这样（左＝原文，右＝发出去的样子）：")
-            for k, v in list(映射.items())[:5]:
-                print(f"  {v[:28]:<30} → {k}")
         print("\n（只是预览，没写任何文件）")
         return
 
     出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".redacted" + 源.suffix)
-    写回(新行, 出)
+    写回(新, 出)
     映射路 = Path(参.映射) if 参.映射 else 源.with_name(源.stem + ".map.json")
-    映射路.write_text(json.dumps(映射, ensure_ascii=False, indent=2), encoding="utf-8")
+    映射路.write_text(json.dumps(场["map"], ensure_ascii=False, indent=2), encoding="utf-8")
     print("\n脱敏版 →", 出)
     print("映射表 →", 映射路)
-    print("映射表里是真值，用完请删掉。")
+    print("⚠ 映射表里是真值：谁拿到它就能还原全部。别外传，用完删掉。")
 
 
 if __name__ == "__main__":

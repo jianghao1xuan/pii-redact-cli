@@ -149,3 +149,38 @@ class 规则:
 
         文 = re.sub(r"\[\s*(PHONE|ID|BANK|EMAIL|TEL|PLATE|USCC|PASSPORT)\s*_\s*(\d+)\s*\]", 换, 文)
         return 文
+
+# ---------- 像敏感、但没通过校验的，单独报出来 ----------
+_疑似卡 = re.compile(r"(?<![\d])\d{4}(?:[\s\-]?\d){12,15}(?![\d])")
+_疑似证 = re.compile(r"(?<![\d])\d{6}(?:[\s\-]?\d){11}[\dXx]?(?![\d])")
+_疑似手机 = re.compile(r"(?<![\d])(?:\+?86[\s\-]?)?1\d(?:[\s\-]?\d){9}(?![\d])")
+_疑似邮箱 = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+")
+
+
+def 查可疑(文: str):
+    """返回 [(说明, 片段)]。已经换成占位符的文本不会命中这些。"""
+    if not isinstance(文, str) or not 文:
+        return []
+    出 = []
+    已报 = []          # 同一段别被两条规则重复报
+    for m in _疑似证.finditer(文):
+        段 = m.group(0)
+        数 = re.sub(r"[^\dXx]", "", 段).upper()
+        if len(数) == 18 and not 规则.身份证对(数):
+            出.append(("18 位、但校验位不对", 段))
+            已报.append(段)
+    for m in _疑似卡.finditer(文):
+        段 = m.group(0)
+        数 = re.sub(r"\D", "", 段)
+        if 16 <= len(数) <= 19 and not 规则.银行卡对(数) and 段 not in 已报:
+            出.append(("像银行卡，但 Luhn 校验不过", 段))
+    for m in _疑似手机.finditer(文):
+        段 = m.group(0)
+        数 = re.sub(r"\D", "", 段)[-11:]
+        if len(数) == 11 and 数[0] == "1" and not re.match(r"1[3-9]", 数):
+            出.append(("11 位、但号段不像手机", 段))
+    for m in _疑似邮箱.finditer(文):
+        段 = m.group(0)
+        if "." not in 段.split("@")[-1]:
+            出.append(("像邮箱，但没有顶级域名", 段))
+    return 出
