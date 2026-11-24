@@ -2,7 +2,15 @@
 
 命令行中文脱敏工具：把文件里的手机号、身份证、银行卡这些换成占位符，需要时再换回来。
 
-**不需要 Open WebUI，也不需要联网**，装个 Python 就能跑。处理和还原都在你自己电脑上完成，一个字节都不出去。
+**不需要 Open WebUI，也不需要联网**，处理和还原都在你自己电脑上完成，一个字节都不出去。
+
+依赖分三档，看你要处理什么：
+
+| 处理什么 | 要装什么 |
+|---|---|
+| `.txt` / `.md` / `.csv` | **只要 Python**，不用装别的 |
+| `.xlsx`（Excel） | 再装 `openpyxl` |
+| `.docx`（Word） | 再装 `python-docx` |
 
 > **这一版只覆盖八类有规则的写法，处理过的内容请复核一遍。**
 
@@ -10,16 +18,25 @@
 
 ## 装
 
-需要 **Python 3.8 或更高**，没有第三方依赖。
+先要 **Python 3.8 或更高**：
 
 - Windows：到 https://www.python.org/downloads/ 下最新版，安装时**把「Add Python to PATH」勾上**
 - macOS / Linux：一般自带
 
-处理 `.xlsx` 需要额外装一个库：
+然后按你要处理的文件，决定要不要再装库：
 
 ```bash
+# 只处理 txt / csv / md —— 到此为止，不用再装
+python pii_tool.py preview 客户.csv
+
+# 要处理 Excel
 pip install openpyxl
+
+# 要处理 Word
+pip install python-docx
 ```
+
+没装对应的库时，它会直接告诉你缺哪个、怎么装，不会静默失败。
 
 ---
 
