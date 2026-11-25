@@ -57,19 +57,12 @@ def 读文件(路: Path):
             print("处理 xlsx 需要 openpyxl：pip install openpyxl", file=sys.stderr)
             raise SystemExit(2)
         书 = openpyxl.load_workbook(路)
-        数据 = {}
-        for 页 in 书.worksheets:
-            数据[页.title] = [[c.value for c in r] for r in 页.iter_rows()]
 
         def 写(新数据, 出: Path):
-            新 = openpyxl.Workbook()
-            新.remove(新.active)
-            for 名, 行们 in 新数据.items():
-                页 = 新.create_sheet(title=名[:31])
-                for r in 行们:
-                    页.append(r)
-            新.save(出)
-        return 数据, "簿", "utf-8", 写
+            # 2026-11-25 改：以前是新建 Workbook 再 append，结果公式还在、格式全没了
+            # （加粗、底色、数字格式、列宽、行高、合并单元格）。现在原地改完直接另存。
+            新数据.save(出)
+        return 书, "簿", "utf-8", 写
 
     编 = 猜编码(路)
 
@@ -102,13 +95,12 @@ def 处理(数据, 模式, r: 规则, 场: dict):
             新.append([走(c, f"第 {i} 行 第 {j} 列") for j, c in enumerate(行, 1)])
         return 新, 明细, 可疑
 
-    新簿 = {}
-    for 名, 行们 in 数据.items():
-        新行们 = []
-        for i, 行 in enumerate(行们, 1):
-            新行们.append([走(c, f"[{名}] 第 {i} 行 第 {j} 列") for j, c in enumerate(行, 1)])
-        新簿[名] = 新行们
-    return 新簿, 明细, 可疑
+    for 页 in 数据.worksheets:
+        for i, 行 in enumerate(页.iter_rows(), 1):
+            for j, 格 in enumerate(行, 1):
+                if isinstance(格.value, str) and 格.value:
+                    格.value = 走(格.value, f"[{页.title}] 第 {i} 行 第 {j} 列")
+    return 数据, 明细, 可疑
 
 
 def 报(明细, 可疑, 最多=20):
@@ -174,6 +166,30 @@ def 处理docx(源: Path, r: 规则, 场: dict):
             for j, 格 in enumerate(行.cells, 1):
                 for 段 in 格.paragraphs:
                     走(段, f"[表 {k}] 第 {i} 行 第 {j} 列")
+
+    # 2026-11-25 补：页眉、页脚、脚注、尾注以前完全不过——合同类的敏感信息恰恰常在这儿。
+    # 每一节各有自己的页眉页脚，首页还可能单独一套，所以要逐节走。
+    for k, 节 in enumerate(文档.sections, 1):
+        for 名, 部件 in (("页眉", 节.header), ("首页页眉", 节.first_page_header),
+                         ("页脚", 节.footer), ("首页页脚", 节.first_page_footer)):
+            try:
+                for 段 in 部件.paragraphs:
+                    走(段, f"[{名} {k}]")
+                for i, 表 in enumerate(部件.tables, 1):
+                    for ii, 行 in enumerate(表.rows, 1):
+                        for jj, 格 in enumerate(行.cells, 1):
+                            for 段 in 格.paragraphs:
+                                走(段, f"[{名} {k} 表 {i}] 第 {ii} 行 第 {jj} 列")
+            except Exception:
+                continue          # 有些文档没有首页页眉这类部件，跳过就行
+
+    for 名, 部件 in (("脚注", getattr(文档, "footnotes", None)),
+                     ("尾注", getattr(文档, "endnotes", None))):
+        try:
+            for 段 in (部件.paragraphs if 部件 is not None else []):
+                走(段, f"[{名}]")
+        except Exception:
+            continue
     return 文档, 明细, 可疑
 
 
@@ -246,6 +262,19 @@ def 主():
                     for 格 in 行.cells:
                         for 段 in 格.paragraphs:
                             改段(段)
+            # 2026-11-25：页眉页脚也要还原，不然挡住了回不去
+            for 节 in 文.sections:
+                for 部件 in (节.header, 节.footer, 节.first_page_header, 节.first_page_footer):
+                    try:
+                        for 段 in 部件.paragraphs:
+                            改段(段)
+                        for 表 in 部件.tables:
+                            for 行 in 表.rows:
+                                for 格 in 行.cells:
+                                    for 段 in 格.paragraphs:
+                                        改段(段)
+                    except Exception:
+                        continue
             出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".restored" + 源.suffix)
             文.save(str(出))
             print("还原完成 →", 出)
@@ -256,9 +285,15 @@ def 主():
             新 = [换(l) for l in 数据]
         elif 模式 == "格":
             新 = [[换(c) if isinstance(c, str) else c for c in 行] for 行 in 数据]
+        elif 模式 == "簿":
+            for 页 in 数据.worksheets:
+                for 行 in 页.iter_rows():
+                    for 格 in 行:
+                        if isinstance(格.value, str):
+                            格.value = 换(格.value)
+            新 = 数据
         else:
-            新 = {名: [[换(c) if isinstance(c, str) else c for c in 行] for 行 in 行们]
-                  for 名, 行们 in 数据.items()}
+            新 = [[换(c) if isinstance(c, str) else c for c in 行] for 行 in 数据]
         出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".restored" + 源.suffix)
         写回(新, 出)
         print("还原完成 →", 出)
