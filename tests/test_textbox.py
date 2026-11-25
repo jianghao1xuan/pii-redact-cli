@@ -10,8 +10,7 @@ import docx  # noqa: E402
 from docx.oxml import parse_xml  # noqa: E402
 from docx.oxml.ns import nsdecls  # noqa: E402
 
-根 = Path(__file__).resolve().parent.parent if "__file__" in dir() else Path(r"E:\AI-Assistant\mine\pii-redact-cli")
-根 = Path(r"E:\AI-Assistant\mine\pii-redact-cli")
+根 = Path(__file__).resolve().parent.parent
 工具 = 根 / "pii_tool.py"
 临 = Path(tempfile.mkdtemp(prefix="tbx_"))
 

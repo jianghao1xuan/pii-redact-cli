@@ -51,7 +51,7 @@ python pii_tool.py preview 客户.csv
 # 2. 出脱敏版 + 映射表（.txt .md .csv .xlsx .docx 都行）
 python pii_tool.py redact 客户.docx
 
-# 3. 需要时还原
+# 3. 需要时还原（一个占位符都没命中就不写文件，免得你拿到一份没还原的 restored）
 python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
 ```
 

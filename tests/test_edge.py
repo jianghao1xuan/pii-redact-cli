@@ -110,5 +110,17 @@ with 大.open("w", encoding="utf-8", newline="") as f:
 用时 = time.time() - 起
 查("5000 行 5 秒内", 码 == 0 and 用时 < 5 and "5000 处" in 出, f"{用时:.1f} 秒")
 
+# 12 还原：一个占位符都没命中时，不许写文件、不许报成功
+import json as _json  # noqa: E402
+
+无 = 临 / "没占位符.txt"
+无.write_text("张三 13812345678\n", encoding="utf-8")
+假映射 = 临 / "假.map.json"
+假映射.write_text(_json.dumps({"[PHONE_1]": "13812345678"}, ensure_ascii=False), encoding="utf-8")
+码, 出 = 跑("restore", 无, "--map", 假映射)
+查("零替换还原：退出码非 0", 码 != 0, f"退出码 {码}")
+查("零替换还原：不写文件", not (临 / "没占位符.restored.txt").exists())
+查("零替换还原：有提示", "没还原到" in 出, 出[:80])
+
 print("\n失败：", 错 if 错 else "无")
 sys.exit(1 if 错 else 0)

@@ -282,10 +282,24 @@ def 主():
             raise SystemExit(2)
         反 = json.loads(Path(参.映射).read_text(encoding="utf-8"))
 
+        次数 = [0]
+
         def 换(文):
             for k, v in 反.items():
-                文 = 文.replace(k, v)
+                n = 文.count(k)
+                if n:
+                    次数[0] += n
+                    文 = 文.replace(k, v)
             return 文
+
+        def 检查还原():
+            """一个占位符都没命中就别写文件——那玩意儿名字叫 restored，内容却没还原，
+            比报错更阴（2026-11-25 评审提的）。"""
+            if 次数[0] == 0:
+                print("⚠ 一个占位符都没还原到：要么编码不对，要么这张映射表跟这份文件对不上。\n"
+                      "  没有写出文件——免得你拿到一份叫 restored、其实没还原的东西。",
+                      file=sys.stderr)
+                raise SystemExit(3)
 
         if 源.suffix.lower() == ".docx":
             try:
@@ -335,12 +349,17 @@ def 主():
                                         改段(段)
                     except Exception:
                         continue
+            检查还原()
             出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".restored" + 源.suffix)
             文.save(str(出))
             print("还原完成 →", 出)
             return
 
-        数据, 模式, 编码, 写回 = 读文件(源, 参.指定编码)
+        try:
+            数据, 模式, 编码, 写回 = 读文件(源, 参.指定编码)
+        except 编码认不出 as e:
+            print(str(e), file=sys.stderr)
+            raise SystemExit(3)
         if 模式 == "行":
             新 = [换(l) for l in 数据]
         elif 模式 == "格":
@@ -354,6 +373,7 @@ def 主():
             新 = 数据
         else:
             新 = [[换(c) if isinstance(c, str) else c for c in 行] for 行 in 数据]
+        检查还原()
         出 = Path(参.out) if 参.out else 源.with_name(源.stem + ".restored" + 源.suffix)
         写回(新, 出)
         print("还原完成 →", 出)
