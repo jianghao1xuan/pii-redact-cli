@@ -19,29 +19,47 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pii_rules import 规则, 新场, 查可疑  # noqa: E402
 
-编码们 = ("utf-8", "gb18030", "big5", "latin-1")
+编码们 = ("utf-8", "gb18030", "big5")
+
+# BOM → 编码。UTF-16/32 的字节里全是 0，被 gb18030 读也能“成功”，
+# 于是整篇成了乱码、一个号码都对不上，最后还报“完成”——2026-11-25 修的就是这个。
+BOM表 = (
+    (b"\xff\xfe\x00\x00", "utf-32"),
+    (b"\x00\x00\xfe\xff", "utf-32"),
+    (b"\xff\xfe", "utf-16"),
+    (b"\xfe\xff", "utf-16"),
+    (b"\xef\xbb\xbf", "utf-8-sig"),
+)
 
 
-def 猜编码(路: Path) -> str:
-    """按顺序试，能整篇解出来才算。最后兜底 latin-1（永不失败）。"""
+class 编码认不出(Exception):
+    """猜不出编码时抛它——宁可报错，也不能“读成乱码还说完成了”。"""
+
+
+def 猜编码(路: Path, 指定: str = "") -> str:
+    if 指定:
+        return 指定
     原 = 路.read_bytes()
-    if 原.startswith(b"\xef\xbb\xbf"):      # 带 BOM 的 UTF-8，写回时也要留着
-        return "utf-8-sig"
+    for bom, 编 in BOM表:
+        if 原.startswith(bom):
+            return 编
     for 编 in 编码们:
         try:
             原.decode(编)
             return 编
         except UnicodeDecodeError:
             continue
-    return "latin-1"
+    raise 编码认不出(
+        f"猜不出 {路.name} 的编码（试过 {', '.join(编码们)}）。"
+        "请用 --encoding 指定，比如 --encoding gbk")
 
 
-def 读文件(路: Path):
+def 读文件(路: Path, 指定编码: str = ""):
     """返回 (数据, 模式, 编码, 写回)。模式：'格' 表格行×列；'行' 纯文本行。"""
     后 = 路.suffix.lower()
 
     if 后 == ".csv":
-        编 = 猜编码(路)
+        编 = 猜编码(路, 指定编码)
         with 路.open(encoding=编, newline="") as f:
             数据 = [r for r in csv.reader(f)]
 
@@ -64,11 +82,13 @@ def 读文件(路: Path):
             新数据.save(出)
         return 书, "簿", "utf-8", 写
 
-    编 = 猜编码(路)
+    编 = 猜编码(路, 指定编码)
+    # 不再用 errors="replace"：解不出的字节换成 � 再写回去，等于悄悄改坏文件
+    行们 = 路.read_text(encoding=编).splitlines(keepends=True)
 
     def 写(新数据, 出: Path):
         出.write_text("".join(新数据), encoding=编)
-    return 路.read_text(encoding=编, errors="replace").splitlines(keepends=True), "行", 编, 写
+    return 行们, "行", 编, 写
 
 
 def 处理(数据, 模式, r: 规则, 场: dict):
@@ -108,6 +128,9 @@ def 报(明细, 可疑, 最多=20):
     for _, _, 键 in 明细:
         类 = 键.strip("[]").rsplit("_", 1)[0]
         记数[类] = 记数.get(类, 0) + 1
+    if not 明细:
+        print("⚠ 一处都没换到。如果这份文件里确实有敏感信息，先确认编码对不对"
+              "（可以试 --encoding gbk 或 utf-16），别直接当成“干净”。")
     print(f"换掉 {len(明细)} 处：")
     for 类, n in sorted(记数.items()):
         print(f"  {类:<9} {n:>3} 处")
@@ -140,15 +163,24 @@ def 处理docx(源: Path, r: 规则, 场: dict):
     文档 = docx.Document(str(源))
     明细, 可疑 = [], []
 
-    def 走(段, 位置):
-        原 = 段.text
+    def 换文(原: str, 位置: str) -> str:
+        """把一段字符串脱敏，顺手记明细和可疑。段落、XML 文本节点都走它。"""
         if not 原 or not 原.strip():
-            return
+            return 原
         前 = set(场["map"])
         新 = r.脱一段(原, 场)
         for 键, 值 in 场["map"].items():
             if 键 not in 前:
                 明细.append((位置, 值, 键))
+        for 说明, 片 in 查可疑(新):
+            可疑.append((位置, 说明, 片))
+        return 新
+
+    def 走(段, 位置):
+        原 = 段.text
+        if not 原 or not 原.strip():
+            return
+        新 = 换文(原, 位置)
         if 新 != 原:
             for x in 段.runs[1:]:
                 x.text = ""
@@ -156,8 +188,6 @@ def 处理docx(源: Path, r: 规则, 场: dict):
                 段.runs[0].text = 新
             else:
                 段.add_run(新)
-        for 说明, 片 in 查可疑(新):
-            可疑.append((位置, 说明, 片))
 
     for i, 段 in enumerate(文档.paragraphs, 1):
         走(段, f"第 {i} 段")
@@ -182,6 +212,25 @@ def 处理docx(源: Path, r: 规则, 场: dict):
                                 走(段, f"[{名} {k} 表 {i}] 第 {ii} 行 第 {jj} 列")
             except Exception:
                 continue          # 有些文档没有首页页眉这类部件，跳过就行
+
+    # 2026-11-25 补：文本框（w:txbxContent）不在 paragraphs/tables/header 里，以前全漏。
+    # 直接扫 XML 里的 <w:t> 文本节点，能把文本框里的字一起过掉；已经换成占位符的不会再变。
+    try:
+        from docx.oxml.ns import qn
+        根们 = [文档.element]
+        for 节2 in 文档.sections:
+            for 部件2 in (节2.header, 节2.footer, 节2.first_page_header, 节2.first_page_footer):
+                try:
+                    if 部件2 is not None:
+                        根们.append(部件2._element)
+                except Exception:
+                    pass
+        for 根 in 根们:
+            for 位, t in enumerate(根.iter(qn("w:t")), 1):
+                if t.text:
+                    t.text = 换文(t.text, f"[文本框/文本节点 {位}]")
+    except Exception:
+        pass
 
     for 名, 部件 in (("脚注", getattr(文档, "footnotes", None)),
                      ("尾注", getattr(文档, "endnotes", None))):
@@ -210,6 +259,8 @@ def 主():
     解.add_argument("文件", help="要处理的文件：.txt .md .csv .xlsx")
     解.add_argument("--out", default="", help="输出路径（默认在原文件旁边）")
     解.add_argument("--map", dest="映射", default="", help="映射表路径（还原时必填）")
+    解.add_argument("--encoding", dest="指定编码", default="",
+                    help="强制指定源文件编码（如 gbk、utf-16）；猜不出时会要求你指定")
     参 = 解.parse_args()
 
     源 = Path(参.文件)
@@ -262,6 +313,15 @@ def 主():
                     for 格 in 行.cells:
                         for 段 in 格.paragraphs:
                             改段(段)
+            # 2026-11-25：文本框（XML 文本节点）也要还原
+            try:
+                from docx.oxml.ns import qn as _qn
+                for 根 in [文.element] + [s2._element for s2 in 文.sections]:
+                    for t in 根.iter(_qn("w:t")):
+                        if t.text:
+                            t.text = 换(t.text)
+            except Exception:
+                pass
             # 2026-11-25：页眉页脚也要还原，不然挡住了回不去
             for 节 in 文.sections:
                 for 部件 in (节.header, 节.footer, 节.first_page_header, 节.first_page_footer):
@@ -280,7 +340,7 @@ def 主():
             print("还原完成 →", 出)
             return
 
-        数据, 模式, 编码, 写回 = 读文件(源)
+        数据, 模式, 编码, 写回 = 读文件(源, 参.指定编码)
         if 模式 == "行":
             新 = [换(l) for l in 数据]
         elif 模式 == "格":
@@ -316,7 +376,11 @@ def 主():
         print("⚠ 映射表里是真值：谁拿到它就能还原全部。别外传，用完删掉。")
         return
 
-    数据, 模式, 编码, 写回 = 读文件(源)
+    try:
+        数据, 模式, 编码, 写回 = 读文件(源, 参.指定编码)
+    except 编码认不出 as e:
+        print(str(e), file=sys.stderr)
+        raise SystemExit(3)
     print(f"读入：{源.name}（编码 {编码}）")
     场 = 新场()
     新, 明细, 可疑 = 处理(数据, 模式, r, 场)

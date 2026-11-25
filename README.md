@@ -97,9 +97,11 @@ python pii_tool.py restore 客户.redacted.csv --map 客户.map.json
 - Excel 要 `openpyxl`：`pip install openpyxl`
 - Word 要 `python-docx`：`pip install python-docx`
 
-编码自动识别：UTF-8（含 BOM）、GBK / GB18030、Big5。读进来什么编码，写出去还是什么编码。
+编码自动识别：先看 BOM（UTF-8 / UTF-16 / UTF-32），再试 UTF-8、GB18030、Big5，读进来什么编码写出去还是什么编码。
 
-**Word**：正文、表格、页眉、页脚（含首页页眉页脚）都处理，也都能还原；脚注尾注尽力而为。
+**猜不出就报错，不会硬着头皮读**——用 `--encoding gbk` 这类参数指定即可。一个都没换到时也会提示，别直接当成“干净”。
+
+**Word**：正文、表格、页眉、页脚（含首页页眉页脚）、**文本框**都处理，也都能还原；脚注尾注尽力而为。文本框是直接扫 XML 文本节点的，放在文本框里的字也过得到。
 
 **Word 的一个小心事**：改过的段落会把文字并到第一个 run 里——段落样式（标题、行距）还在，但段内局部的加粗、颜色会丢。要连这点也保住，得逐 run 拼位置，容易出错，这一版没做。
 
