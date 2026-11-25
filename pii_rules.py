@@ -29,7 +29,8 @@ class 规则:
     _车牌 = re.compile(
         r"(?<![A-Za-z0-9\u4e00-\u9fa5])"
         r"[京津冀晋蒙辽吉黑沪苏浙皖闽赣鲁豫鄂湘粤桂琼渝川贵云藏陕甘青宁新]"
-        r"[A-HJ-NP-Z][A-HJ-NP-Z0-9]{4,5}[A-HJ-NP-Z0-9挂学警港澳]"
+        r"[A-HJ-NP-Z]"
+        r"(?:[DF][A-HJ-NP-Z0-9]{5}|[A-HJ-NP-Z0-9]{4}[A-HJ-NP-Z0-9挂学警港澳])"
         r"(?![A-Za-z0-9])")
     _统一代码 = re.compile(r"(?<![0-9A-Z])[0-9A-HJ-NPQRTUWXY]{2}\d{6}[0-9A-HJ-NPQRTUWXY]{10}(?![0-9A-Z])")
     _护照 = re.compile(r"(?<![0-9A-Za-z])[EG]\d{8}(?![0-9A-Za-z])")
